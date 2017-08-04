@@ -1,0 +1,37 @@
+version: '3'
+services:
+  database:
+    restart: always
+    image: sameersbn/postgresql:9.6-2
+    ports:
+      - "5432:5432"
+    environment:
+      - DEBUG
+      - DB_USER
+      - DB_PASS
+      - DB_NAME
+      - DB_TEMPLATE
+      - DB_EXTENSION
+      - REPLICATION_MODE
+      - REPLICATION_USER
+      - REPLICATION_PASS
+      - REPLICATION_SSLMODE
+    volumes:
+      - /srv/docker/postgresql:/var/lib/postgresql
+      
+  analyzer-trump:
+    build: ./analyzer
+    depends_on:
+      - database
+    environment:
+      - TWITTER_CONSUMER_KEY
+      - TWITTER_CONSUMER_SECRET
+      - TWITTER_ACCESS_TOKEN
+      - TWITTER_ACCESS_TOKEN_SECRET
+      - MODEL
+      - VOCAB
+      - DB_USER
+      - DB_PASS
+      - DB_NAME      
+    command: "database ${DB_USER} ${DB_PASS} ${DB_NAME} trump \"@realDonaldTrump\""
+
