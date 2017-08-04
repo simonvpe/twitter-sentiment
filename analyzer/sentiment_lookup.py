@@ -35,7 +35,7 @@ class SentimentLookup:
     vp = VocabularyProcessor.restore(VOCAB)
     
     def _process_tweet(self, tweet = ""):
-        cleaned = tweet.upper()
+        cleaned = str(tweet).upper()
         cleaned = re.sub('&\w+;',   '',          cleaned)
         cleaned = re.sub('\'',      '',          cleaned)
         cleaned = re.sub('@\w+ ',   'USERNAME ', cleaned)

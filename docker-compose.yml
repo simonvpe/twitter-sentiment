@@ -18,6 +18,20 @@ services:
       - REPLICATION_SSLMODE
     volumes:
       - /srv/docker/postgresql:/var/lib/postgresql
+    restart: always
+
+  web:
+    build: ./web
+    depends_on:
+      - database
+    environment:
+      - DB_USER
+      - DB_PASS
+      - DB_NAME
+      - DB_HOST=database
+    ports:
+      - "5000:5000"
+    restart: always
       
   analyzer-trump:
     build: ./analyzer
@@ -34,4 +48,4 @@ services:
       - DB_PASS
       - DB_NAME      
     command: "database ${DB_USER} ${DB_PASS} ${DB_NAME} trump \"@realDonaldTrump\""
-
+    restart: always
