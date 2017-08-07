@@ -1,7 +1,16 @@
-from flask import Flask, Response
+from flask import Flask, Response, request
+from flask_api import FlaskAPI, exceptions
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import psycopg2, os, json
+from psycopg2 import sql
 
-app = Flask(__name__)
+app = FlaskAPI(__name__)
+limiter = Limiter(
+    app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"]
+)
 
 DB_HOST = os.environ['DB_HOST']
 DB_USER = os.environ['DB_USER']
@@ -13,9 +22,12 @@ db = psycopg2.connect(host=DB_HOST,
                       user=DB_USER,
                       password=DB_PASS)
 
-@app.route("/api/trump")
-def trump():
+@app.route("/api/<string:table>/")
+def list(table):
     cur = db.cursor()
-    cur.execute("SELECT (t,v) FROM trump ORDER BY id DESC")    
-    result = [[row[0], row[1]] for row in [eval(row[0]) for row in cur.fetchall()]]
-    return Response(json.dumps(result), mimetype="application/json")
+    try:
+        cur.execute(sql.SQL("SELECT (t,v) FROM {} ORDER BY id DESC").format(sql.Identifier(table)))  
+    except:
+        db.rollback()
+        raise exceptions.NotFound()
+    return [[row[0], row[1]] for row in [eval(row[0]) for row in cur.fetchall()]]
