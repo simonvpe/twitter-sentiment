@@ -9,7 +9,7 @@ app = FlaskAPI(__name__)
 
 DB_PATH      = os.environ['DB_PATH']
 DEFAULT_FROM = os.environ['DEFAULT_FROM']
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.abspath(DB_PATH) + 'db.sqlite'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.abspath(DB_PATH + '/db.sqlite') 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db  = SQLAlchemy(app)
