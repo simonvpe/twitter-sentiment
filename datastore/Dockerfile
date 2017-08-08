@@ -1,6 +1,6 @@
 FROM python:latest
 
-RUN pip install psycopg2 Flask Flask-API markdown Flask-SQLAlchemy
+RUN pip install psycopg2 Flask Flask-API markdown Flask-SQLAlchemy dateparser
 ENV FLASK_APP=app.py
 ENV DB_PATH=/var/lib/db
 ARG FLASK_DEBUG=1

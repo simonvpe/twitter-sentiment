@@ -8,6 +8,8 @@ services:
       - "5000"
     volumes:
       - "/var/lib/sentiment/db:/var/lib/db"
+    environment:
+      - DEFAULT_FROM=one month ago
     restart: always
 
   # Proxies the REST service, blocks POST requests from
@@ -37,6 +39,6 @@ services:
       - VOCAB
       - DATASTORE=datastore:5000
       - KEY=trump
-      - PERIOD=10 seconds
+      - PERIOD=1 minute
     command: "@realDonaldTrump"
     restart: always

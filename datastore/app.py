@@ -2,12 +2,13 @@ from flask import Flask, Response, request
 from flask_api import FlaskAPI, exceptions
 from flask_sqlalchemy import SQLAlchemy
 
-import os, datetime
+import os, datetime, dateparser
 
 
 app = FlaskAPI(__name__)
 
-DB_PATH  = os.environ['DB_PATH']
+DB_PATH      = os.environ['DB_PATH']
+DEFAULT_FROM = os.environ['DEFAULT_FROM']
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.abspath(DB_PATH) + 'db.sqlite'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -27,13 +28,20 @@ class Sentiment(db.Model):
 
 def list(table):
     if request.method == "GET":
-        records = Sentiment.query.filter_by(key=table).all()
+        from_setting = str(request.args.get("from", DEFAULT_FROM))
+        start = dateparser.parse(from_setting)
+        records = Sentiment.query.filter_by(key=table).filter(Sentiment.timestamp >= start).all()
         return {
             "docType": "jts",
             "version": "1.0",
+            "header": {
+                "startTime": start.isoformat(),
+                "endTime": datetime.datetime.now().isoformat(),
+                "recordCount": len(records)
+            },
             "data": [
                 {
-                    "timestamp": record.timestamp,
+                    "timestamp": record.timestamp.isoformat(),
                     "value": record.value
                 }
                 for record in records
