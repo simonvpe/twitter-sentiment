@@ -30,7 +30,6 @@ class Sentiment(db.Model):
         self.standard_deviation = standard_deviation
 
 @app.route("/api/<string:table>", methods=["GET", "POST"], strict_slashes=False)
-
 def list(table):
     if request.method == "GET":
         from_setting = str(request.args.get("from", DEFAULT_FROM))

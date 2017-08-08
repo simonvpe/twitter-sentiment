@@ -92,4 +92,4 @@ class MyStreamListener(tweepy.StreamListener):
         raise Exception(str(status_code))
     
 stream = tweepy.Stream(auth = api.auth, listener=MyStreamListener())
-stream.filter(track=args["terms"], async=False)
+stream.filter(track=args["terms"], async=False, languages=['en'])
