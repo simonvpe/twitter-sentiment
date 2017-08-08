@@ -1,12 +1,17 @@
 version: '3'
 services:
 
+  # REST interface for POST and GET of sentiments
   datastore:
     build: ./datastore
     expose:
       - "5000"
+    volumes:
+      - "/var/lib/sentiment/db:/var/lib/db"
     restart: always
 
+  # Proxies the REST service, blocks POST requests from
+  # the "outside"
   proxy:
     image: nginx
     ports:
@@ -16,7 +21,9 @@ services:
     depends_on:
       - datastore
     restart: always
-    
+
+  # Analyzer, pulls stream from twitter - analyzes - and
+  # posts aggregated data to datastore
   analyzer-trump:
     build: ./analyzer
     depends_on:
