@@ -20,11 +20,14 @@ class Sentiment(db.Model):
     timestamp = db.Column(db.DateTime)
     value = db.Column(db.Float)
     tweet_count = db.Column(db.Integer)
-    def __init__(self, key, timestamp, value, tweet_count):
+    standard_deviation = db.Column(db.Float)
+    
+    def __init__(self, key, timestamp, value, tweet_count, standard_deviation):
         self.key = key
         self.timestamp = timestamp
         self.value = value
         self.tweet_count = tweet_count
+        self.standard_deviation = standard_deviation
 
 @app.route("/api/<string:table>", methods=["GET", "POST"], strict_slashes=False)
 
@@ -45,6 +48,7 @@ def list(table):
                 {
                     "timestamp": record.timestamp.isoformat(),
                     "value": record.value,
+                    "standardDeviation": record.standard_deviation,
                     "tweetCount": record.tweet_count
                 }
                 for record in records
@@ -52,16 +56,18 @@ def list(table):
         }
 
     if request.method == "POST":
-        value       = float(request.data.get('value', ''))
-        time        = int(request.data.get('timestamp', ''))
-        tweet_count = int(request.data.get('tweet_count', ''))
-        record = Sentiment(table, datetime.datetime.fromtimestamp(time), value, tweet_count)
+        value              = float(request.data.get('value', ''))
+        time               = int(request.data.get('timestamp', ''))
+        tweet_count        = int(request.data.get('tweet_count', ''))
+        standard_deviation = float(request.data.get("standard_deviation", ''))
+        record = Sentiment(table, datetime.datetime.fromtimestamp(time), value, tweet_count, standard_deviation)
         db.session.add(record)
         db.session.commit()
         return {
             "timestamp": record.timestamp.isoformat(),
             "key": record.key,
             "value": record.value,
+            "standardDeviation": record.standard_deviation,
             "tweet_count": record.tweet_count
         }, 201
 

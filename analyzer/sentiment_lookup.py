@@ -72,9 +72,15 @@ class MyStreamListener(tweepy.StreamListener):
             arr = np.array(MyStreamListener.buf)
             epoch = int(np.mean(map(lambda t: int(t.strftime("%s")), arr[:,0])))
             value = np.mean(arr[:,1])
+            std   = np.std(arr[:,1])
             tweet_count = len(arr[:,1])
 
-            data     = json.dumps({"timestamp": epoch, "value": value, "tweet_count": tweet_count})
+            data     = json.dumps({
+                "timestamp": epoch,
+                "value": value,
+                "standard_deviation": std,
+                "tweet_count": tweet_count
+            })
             url      = 'http://%s/api/%s' % (DATASTORE, KEY)
             headers  = {'Content-Type': 'application/json'}
             response = requests.post(url, data=data, headers=headers)
