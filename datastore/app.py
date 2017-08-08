@@ -19,10 +19,12 @@ class Sentiment(db.Model):
     key = db.Column(db.String(10))
     timestamp = db.Column(db.DateTime)
     value = db.Column(db.Float)
-    def __init__(self, key, timestamp, value):
+    tweet_count = db.Column(db.Integer)
+    def __init__(self, key, timestamp, value, tweet_count):
         self.key = key
         self.timestamp = timestamp
         self.value = value
+        self.tweet_count = tweet_count
 
 @app.route("/api/<string:table>", methods=["GET", "POST"], strict_slashes=False)
 
@@ -42,22 +44,25 @@ def list(table):
             "data": [
                 {
                     "timestamp": record.timestamp.isoformat(),
-                    "value": record.value
+                    "value": record.value,
+                    "tweetCount": record.tweet_count
                 }
                 for record in records
             ]
         }
 
     if request.method == "POST":
-        value  = float(request.data.get('value', ''))
-        time   = int(request.data.get('timestamp', ''))
-        record = Sentiment(table, datetime.datetime.fromtimestamp(time), value)
+        value       = float(request.data.get('value', ''))
+        time        = int(request.data.get('timestamp', ''))
+        tweet_count = int(request.data.get('tweet_count', ''))
+        record = Sentiment(table, datetime.datetime.fromtimestamp(time), value, tweet_count)
         db.session.add(record)
         db.session.commit()
         return {
-            "timestamp": record.timestamp,
+            "timestamp": record.timestamp.isoformat(),
             "key": record.key,
-            "value": record.value
+            "value": record.value,
+            "tweet_count": record.tweet_count
         }, 201
 
 db.create_all()
