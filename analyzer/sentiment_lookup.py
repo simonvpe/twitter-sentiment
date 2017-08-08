@@ -76,7 +76,7 @@ class MyStreamListener(tweepy.StreamListener):
             tweet_count = len(arr[:,1])
 
             data     = json.dumps({
-                "timestamp": epoch,
+                "timestamp": datetime.datetime.fromtimestamp(epoch).isoformat(),
                 "value": value,
                 "standard_deviation": std,
                 "tweet_count": tweet_count

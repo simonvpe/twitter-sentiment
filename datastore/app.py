@@ -2,7 +2,7 @@ from flask import Flask, Response, request
 from flask_api import FlaskAPI, exceptions
 from flask_sqlalchemy import SQLAlchemy
 
-import os, datetime, dateparser
+import os, datetime, dateparser, iso8601
 
 
 app = FlaskAPI(__name__)
@@ -34,14 +34,20 @@ class Sentiment(db.Model):
 def list(table):
     if request.method == "GET":
         from_setting = str(request.args.get("from", DEFAULT_FROM))
+        
         start = dateparser.parse(from_setting)
+        start = start.replace(microsecond=0)
+
+        now = datetime.datetime.now()
+        now = now.replace(microsecond=0)
+        
         records = Sentiment.query.filter_by(key=table).filter(Sentiment.timestamp >= start).all()
         return {
             "docType": "jts",
             "version": "1.0",
             "header": {
                 "startTime": start.isoformat(),
-                "endTime": datetime.datetime.now().isoformat(),
+                "endTime": now.isoformat(),
                 "recordCount": len(records)
             },
             "data": [
@@ -57,10 +63,10 @@ def list(table):
 
     if request.method == "POST":
         value              = float(request.data.get('value', ''))
-        time               = int(request.data.get('timestamp', ''))
+        time               = str(request.data.get('timestamp', ''))
         tweet_count        = int(request.data.get('tweet_count', ''))
         standard_deviation = float(request.data.get("standard_deviation", ''))
-        record = Sentiment(table, datetime.datetime.fromtimestamp(time), value, tweet_count, standard_deviation)
+        record = Sentiment(table, iso8601.parse_date(time), value, tweet_count, standard_deviation)
         db.session.add(record)
         db.session.commit()
         return {
