@@ -1,20 +1,20 @@
 from collections import Sequence
-import re, tflearn, os, sys, argparse, psycopg2, tweepy, tensorflow as tf, numpy as np
+import re, tflearn, os, sys, argparse
+import tweepy, tensorflow as tf
+import numpy as np
 import datetime
 from tflearn.data_utils import VocabularyProcessor
+import requests, json
+import dateparser
 
 parser = argparse.ArgumentParser(description="Perform sentiment analysis and insert results in database")
-parser.add_argument("dbhost",     help="The pgsql host")
-parser.add_argument("dbuser",     help="The pgsql user")
-parser.add_argument("dbpassword", help="The pgsql password")
-parser.add_argument("dbname",     help="The pgsql database name")
-parser.add_argument("dbtable",    help="The pgsql table")
 parser.add_argument("terms", nargs="+", help="The search terms")
 
-print(sys.argv)
 args=vars(parser.parse_args())
 
-
+PERIOD                      = os.environ['PERIOD']
+DATASTORE                   = os.environ["DATASTORE"]
+KEY                         = os.environ["KEY"]
 TWITTER_CONSUMER_KEY        = os.environ['TWITTER_CONSUMER_KEY']
 TWITTER_CONSUMER_SECRET     = os.environ['TWITTER_CONSUMER_SECRET']
 TWITTER_ACCESS_TOKEN        = os.environ['TWITTER_ACCESS_TOKEN']
@@ -53,18 +53,6 @@ class SentimentLookup:
         query = [x for x in SentimentLookup.vp.transform(data)]
         return SentimentLookup.model.predict(query)[:,1]
 
-# Connect to database    
-db = psycopg2.connect(host=args["dbhost"],
-                      dbname=args["dbname"],
-                      user=args["dbuser"],
-                      password=args["dbpassword"])
-
-# Create table
-cur = db.cursor()
-cur.execute("CREATE TABLE IF NOT EXISTS %s (id serial, t timestamp, v real, PRIMARY KEY(id));" %
-            args["dbtable"])
-db.commit()
-
 # Start listening
 auth = tweepy.OAuthHandler(TWITTER_CONSUMER_KEY, TWITTER_CONSUMER_SECRET)
 auth.set_access_token(TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET)
@@ -72,25 +60,26 @@ api = tweepy.API(auth, wait_on_rate_limit=True, wait_on_rate_limit_notify=True)
 
 class MyStreamListener(tweepy.StreamListener):
     sent = SentimentLookup()
-    buf = []
+    buf  = []
+    last = datetime.datetime.now()
     
     def on_status(self, status):
         tweet = status.text.encode('utf-8', errors='ignore')
         MyStreamListener.buf.append((status.created_at, MyStreamListener.sent.sentiment(tweet)))
-
+        
         # Commit from time to time
-        if len(MyStreamListener.buf) == 1000:
+        if dateparser.parse(PERIOD + ' ago') >= MyStreamListener.last:
             arr = np.array(MyStreamListener.buf)
             epoch = int(np.mean(map(lambda t: int(t.strftime("%s")), arr[:,0])))
-            time  = datetime.datetime.fromtimestamp(epoch)
             value = np.mean(arr[:,1])
-            
-            cur = db.cursor()
-            tbl = args["dbtable"]
-            cur.execute("INSERT INTO %s (t,v) VALUES ('%s',%f)" % (tbl,time,value))
-            db.commit()
+
+            data     = json.dumps({"timestamp": epoch, "value": value})
+            url      = 'http://%s/api/%s' % (DATASTORE, KEY)
+            headers  = {'Content-Type': 'application/json'}
+            response = requests.post(url, data=data, headers=headers)
 
             MyStreamListener.buf = []
+            MyStreamListener.last = datetime.datetime.now()
         
     def on_error(self, status_code):
         raise Exception(str(status_code))
