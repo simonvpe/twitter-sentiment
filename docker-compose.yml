@@ -1,4 +1,4 @@
-version: '2'
+version: '3'
 services:
 
   # REST interface for POST and GET of sentiments
@@ -54,3 +54,21 @@ services:
       - PERIOD=1 minute
     command: "@realDonaldTrump"
     restart: always
+
+  analyzer-hillary:
+    build: ./analyzer
+    depends_on:
+      - datastore
+    environment:
+      - TWITTER_CONSUMER_KEY
+      - TWITTER_CONSUMER_SECRET
+      - TWITTER_ACCESS_TOKEN
+      - TWITTER_ACCESS_TOKEN_SECRET
+      - MODEL
+      - VOCAB
+      - DATASTORE=datastore:5000
+      - KEY=hillary
+      - PERIOD=1 minute
+    command: "@HillaryClinton"
+    restart: always
+    

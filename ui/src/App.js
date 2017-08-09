@@ -105,7 +105,7 @@ class App extends Component {
           <img src={logo} className="App-logo" alt="logo" />
           <h2>Welcome to React</h2>
         </div>
-	<Chart keys={["trump"]}/>
+        <Chart keys={["trump", "hillary"]}/>
       </div>);
   }
 }
