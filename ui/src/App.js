@@ -30,7 +30,7 @@ class Chart extends Component {
 	var data = []
 	this.keys.forEach(function(key) {
 	    $.ajaxQueue({
-		url: 'http://localhost/api/' + key,
+		url: 'api/' + key,
 		type: 'GET',
 		success: function(result) {
 		    var values = function() {
