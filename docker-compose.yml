@@ -2,8 +2,8 @@ version: '3'
 services:
 
   # REST interface for POST and GET of sentiments
-  datastore:
-    build: ./datastore
+  mean-sentiment-datastore:
+    build: ./mean-sentiment-datastore
     expose:
       - "5000"
     volumes:
@@ -12,17 +12,39 @@ services:
       - DEFAULT_FROM=one month ago
     restart: always
 
+  top-tweets-datastore:
+    build: ./top-tweets-datastore
+    expose:
+      - "5000"
+    volumes:
+      - "/var/lib/sentiment/db:/var/lib/db"
+    environment:
+      - DEFAULT_FROM=one month ago
+    restart: always
+
+  worst-tweets-datastore:
+    build: ./worst-tweets-datastore
+    expose:
+      - "5000"
+    volumes:
+      - "/var/lib/sentiment/db:/var/lib/db"
+    environment:
+      - DEFAULT_FROM=one month ago
+    restart: always
+    
   react:
     image: node
     volumes:
       - "./ui:/usr/src/app"
     environment:
       - NODE_ENV=debug
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     restart: always
     working_dir: /usr/src/app
     entrypoint: /usr/src/app/run
+    depends_on:
+      - mean-sentiment-datastore
     
   # Proxies the REST service, blocks POST requests from
   # the "outside"
@@ -33,15 +55,18 @@ services:
     volumes:
       - "./nginx.conf:/etc/nginx/nginx.conf"
     depends_on:
-      - datastore
+      - mean-sentiment-datastore
+      - top-tweets-datastore
+      - react
     restart: always
 
   # Analyzer, pulls stream from twitter - analyzes - and
-  # posts aggregated data to datastore
+  # posts aggregated data to mean-sentiment-datastore
   analyzer-trump:
     build: ./analyzer
     depends_on:
-      - datastore
+      - mean-sentiment-datastore
+      - top-tweets-datastore
     environment:
       - TWITTER_CONSUMER_KEY
       - TWITTER_CONSUMER_SECRET
@@ -49,7 +74,9 @@ services:
       - TWITTER_ACCESS_TOKEN_SECRET
       - MODEL
       - VOCAB
-      - DATASTORE=datastore:5000
+      - MEAN_SENTIMENT_DATASTORE=mean-sentiment-datastore:5000
+      - TOP_TWEETS_DATASTORE=top-tweets-datastore:5000
+      - WORST_TWEETS_DATASTORE=worst-tweets-datastore:5000
       - KEY=trump
       - PERIOD=1 minute
     command: "@realDonaldTrump"
@@ -58,7 +85,8 @@ services:
   analyzer-hillary:
     build: ./analyzer
     depends_on:
-      - datastore
+      - mean-sentiment-datastore
+      - top-tweets-datastore
     environment:
       - TWITTER_CONSUMER_KEY
       - TWITTER_CONSUMER_SECRET
@@ -66,7 +94,9 @@ services:
       - TWITTER_ACCESS_TOKEN_SECRET
       - MODEL
       - VOCAB
-      - DATASTORE=datastore:5000
+      - MEAN_SENTIMENT_DATASTORE=mean-sentiment-datastore:5000
+      - TOP_TWEETS_DATASTORE=top-tweets-datastore:5000
+      - WORST_TWEETS_DATASTORE=worst-tweets-datastore:5000
       - KEY=hillary
       - PERIOD=1 minute
     command: "@HillaryClinton"

@@ -30,19 +30,22 @@ class Chart extends Component {
 	var data = []
 	this.keys.forEach(function(key) {
 	    $.ajaxQueue({
-		url: 'api/' + key,
+		url: 'api/mean-sentiment/' + key,
 		type: 'GET',
 		success: function(result) {
 		    var values = function() {
 			var values = []
 			result.data.forEach(function(row) {
-			    values.push([
-				Date.parse(row.timestamp),
-				row.value
-			    ]);
+			    values.push({
+				x: Date.parse(row.timestamp),
+				y: row.value,
+				std: row.standardDeviation,
+				tweetCount: row.tweetCount
+			    });
 			});
 			return values;
 		    }();
+		    
 		    data.push({
 			name: key,
 			data: values
@@ -51,13 +54,22 @@ class Chart extends Component {
 		    component.setState({
 			data: {
 			    chart: {
-				type: 'spline'
+				type: 'spline',
+				zoomType: 'x'
 			    },
 			    title: {
 				text: "Sentiment analysis"
 			    },
 			    subtitle: {
 				text: "..."
+			    },
+			    tooltip: {
+				formatter: function() {
+				    return '' +
+					'Sentiment; <b>' + this.point.y + '<b><br/>' +
+					'Standard deviation: <b>' + this.point.std + '<b><br/>' +
+					'Tweet count: <b>' + this.point.tweetCount + '<b><br/>'
+				}
 			    },
 			    xAxis: {
 				type: 'datetime',
@@ -78,6 +90,10 @@ class Chart extends Component {
 				spline: {
 				    marker: {
 					enabled: true
+				    },
+				    series: {
+					colors: ['#7cb5ec', '#434348', '#90ed7d', '#f7a35c', '#8085e9', 
+						 '#f15c80', '#e4d354', '#2b908f', '#f45b5b', '#91e8e1']
 				    }
 				}
 			    },

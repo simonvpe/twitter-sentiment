@@ -13,7 +13,9 @@ parser.add_argument("terms", nargs="+", help="The search terms")
 args=vars(parser.parse_args())
 
 PERIOD                      = os.environ['PERIOD']
-DATASTORE                   = os.environ["DATASTORE"]
+MEAN_SENTIMENT_DATASTORE    = os.environ["MEAN_SENTIMENT_DATASTORE"]
+TOP_TWEETS_DATASTORE        = os.environ["TOP_TWEETS_DATASTORE"]
+WORST_TWEETS_DATASTORE      = os.environ["WORST_TWEETS_DATASTORE"]
 KEY                         = os.environ["KEY"]
 TWITTER_CONSUMER_KEY        = os.environ['TWITTER_CONSUMER_KEY']
 TWITTER_CONSUMER_SECRET     = os.environ['TWITTER_CONSUMER_SECRET']
@@ -65,26 +67,65 @@ class MyStreamListener(tweepy.StreamListener):
     
     def on_status(self, status):
         tweet = status.text.encode('utf-8', errors='ignore')
-        MyStreamListener.buf.append((status.created_at, MyStreamListener.sent.sentiment(tweet)))
+        MyStreamListener.buf.append((status.created_at, MyStreamListener.sent.sentiment(tweet), status.text))
         
         # Commit from time to time
         if dateparser.parse(PERIOD + ' ago') >= MyStreamListener.last:
             arr = np.array(MyStreamListener.buf)
-            epoch = int(np.mean(map(lambda t: int(t.strftime("%s")), arr[:,0])))
-            value = np.mean(arr[:,1])
-            std   = np.std(arr[:,1])
-            tweet_count = len(arr[:,1])
 
+            sentiments  = arr[:,1]
+            timestamps  = map(lambda t: int(t.strftime("%s")), arr[:,0])
+            epoch       = int(np.mean(timestamps))
+            value       = np.mean(sentiments)
+            std         = np.std(sentiments)
+            tweet_count = len(sentiments)
+
+            # Send to mean-sentiment-datastore
             data     = json.dumps({
                 "timestamp": datetime.datetime.fromtimestamp(epoch).isoformat(),
                 "value": value,
                 "standard_deviation": std,
                 "tweet_count": tweet_count
             })
-            url      = 'http://%s/api/%s' % (DATASTORE, KEY)
+            url      = 'http://%s/api/mean-sentiment/%s' % (MEAN_SENTIMENT_DATASTORE, KEY)
             headers  = {'Content-Type': 'application/json'}
             response = requests.post(url, data=data, headers=headers)
 
+            # Send to top-tweets-datastore
+            texts = arr[:,2]
+            top_idx = np.argmax(sentiments)
+            top_sentiment = sentiments[top_idx]
+            top_timestamp = timestamps[top_idx]
+            top_text      = texts[top_idx]
+
+            data = json.dumps({
+                "timestamp": datetime.datetime.fromtimestamp(top_timestamp).isoformat(),
+                "sentiment": top_sentiment,
+                "text": top_text
+            })
+            url      = 'http://%s/api/top-tweets/%s' % (TOP_TWEETS_DATASTORE, KEY)
+            headers  = {'Content-Type': 'application/json'}
+            response = requests.post(url, data=data, headers=headers)
+
+            # Send to worst-tweets-datastore
+            texts = arr[:,2]
+            worst_idx = np.argmin(sentiments)
+            worst_sentiment = sentiments[worst_idx]
+            worst_timestamp = timestamps[worst_idx]
+            worst_text      = texts[worst_idx]
+
+            response = requests.post(
+                'http://%s/api/worst-tweets/%s' % (WORST_TWEETS_DATASTORE, KEY),
+                data = json.dumps({
+                    "timestamp": datetime.datetime.fromtimestamp(worst_timestamp).isoformat(),
+                    "sentiment": worst_sentiment,
+                    "text": worst_text
+                }),
+                headers = {
+                    'Content-Type': 'application/json'
+                }
+            )
+            
             MyStreamListener.buf = []
             MyStreamListener.last = datetime.datetime.now()
         
