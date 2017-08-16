@@ -1,28 +1,27 @@
 from collections import Sequence
-import re, tflearn, os, sys, argparse
+import re, tflearn, os, sys, argparse, traceback
 import tweepy, tensorflow as tf
 import numpy as np
 import datetime
 from tflearn.data_utils import VocabularyProcessor
-import requests, json
 import dateparser
+import time
+import pandas as pd
+from influxdb import InfluxDBClient
 
 parser = argparse.ArgumentParser(description="Perform sentiment analysis and insert results in database")
 parser.add_argument("terms", nargs="+", help="The search terms")
 
 args=vars(parser.parse_args())
 
-PERIOD                      = os.environ['PERIOD']
-MEAN_SENTIMENT_DATASTORE    = os.environ["MEAN_SENTIMENT_DATASTORE"]
-TOP_TWEETS_DATASTORE        = os.environ["TOP_TWEETS_DATASTORE"]
-WORST_TWEETS_DATASTORE      = os.environ["WORST_TWEETS_DATASTORE"]
-KEY                         = os.environ["KEY"]
 TWITTER_CONSUMER_KEY        = os.environ['TWITTER_CONSUMER_KEY']
 TWITTER_CONSUMER_SECRET     = os.environ['TWITTER_CONSUMER_SECRET']
 TWITTER_ACCESS_TOKEN        = os.environ['TWITTER_ACCESS_TOKEN']
 TWITTER_ACCESS_TOKEN_SECRET = os.environ['TWITTER_ACCESS_TOKEN_SECRET']
 MODEL                       = os.environ['MODEL']
 VOCAB                       = os.environ['VOCAB']
+
+users = set([user[1:] for user in filter(lambda x: x[0] == '@',args["terms"])])
 
 class SentimentLookup:
     net = tflearn.input_data     ([None, 40])
@@ -55,6 +54,122 @@ class SentimentLookup:
         query = [x for x in SentimentLookup.vp.transform(data)]
         return SentimentLookup.model.predict(query)[:,1]
 
+# Open connection to influxdb
+client = InfluxDBClient('influxdb', 8086, 'root', 'root', 'db')
+client.create_database('db')
+
+client.create_retention_policy('one_hour',  '1h',   1, 'db', True)
+client.create_retention_policy('one_week',  '7d',   1, 'db')
+client.create_retention_policy('one_month', '31d',  1, 'db')
+client.create_retention_policy('forever',   'INF',  1, 'db')
+
+def cq_query(functions, destination_measurement, measurement, interval, tag_keys, where = ""):
+    q = ['SELECT ', functions, ' INTO ', destination_measurement,' FROM ', measurement]
+
+    if where and len(where) > 0:
+        q += [' WHERE ', where]
+
+    q += [' GROUP BY ' + 'time(' + interval + ')']
+
+    if tag_keys and len(tag_keys) > 0:
+        q += [',', tag_keys]
+                        
+    return ''.join(q)
+    
+def create_cq_query(cq_name, database_name, query):
+    return 'CREATE CONTINUOUS QUERY ' + cq_name + ' ON ' + database_name + ' BEGIN ' + query + ' END'
+
+try:
+    client.query(
+        create_cq_query('cq_1m', 'db',
+                        cq_query(
+                            functions='mean(sentiment) AS sentiment, stddev(sentiment) AS std, count(sentiment) AS tweets',
+                            destination_measurement='"one_hour"."sentiment_1m"',
+                            measurement='"one_hour"."sentiment"',
+                            interval="1m",
+                            tag_keys='"key"'
+                        )
+        )
+    )
+except:
+    pass
+
+try:
+    client.query(
+        create_cq_query('cq_1m_top', 'db',
+                        cq_query(
+                            functions='top(sentiment,1), text, id',
+                            destination_measurement='"forever"."top_sentiment"',
+                            measurement='"one_hour"."sentiment"',
+                            interval='1m',
+                            tag_keys='"key"'
+                        )
+        )
+    )
+except:
+    pass
+
+try:
+    client.query(
+        create_cq_query('cq_1m_bottom', 'db',
+                        cq_query(
+                            functions='bottom(sentiment,1), text, id',
+                            destination_measurement='"forever"."bottom_sentiment"',
+                            measurement='"one_hour"."sentiment"',
+                            interval='1m',
+                            tag_keys='"key"'
+                        )
+        )
+    )
+except:
+    pass
+
+
+try:
+    client.query(
+        create_cq_query('cq_15m', 'db',
+                        cq_query(
+                            functions='mean(sentiment) AS sentiment, mean(std) AS std, sum(tweets) AS tweets',
+                            destination_measurement='"one_week"."sentiment_15m"',
+                            measurement='"one_hour"."sentiment_1m"',
+                            interval="15m",
+                            tag_keys='"key"'
+                        )
+        )
+    )
+except:
+    pass
+
+try:
+    client.query(
+        create_cq_query('cq_1h', 'db',
+                        cq_query(
+                            functions='mean(sentiment) AS sentiment, mean(std) AS std, sum(tweets) AS tweets',
+                            destination_measurement='"one_month"."sentiment_1h"',
+                            measurement='"one_week"."sentiment_15m"',
+                            interval="1h",
+                            tag_keys='"key"'
+                        )
+        )
+    )
+except:
+    pass
+
+try:
+    client.query(
+        create_cq_query('cq_1d', 'db',
+                        cq_query(
+                            functions='mean(sentiment) AS sentiment, mean(std) AS std, sum(tweets) AS tweets',
+                            destination_measurement='"forever"."sentiment_1d"',
+                            measurement='"one_month"."sentiment_1h"',
+                            interval="1d",
+                            tag_keys='"key"'
+                        )
+        )
+    )
+except:
+    pass
+    
 # Start listening
 auth = tweepy.OAuthHandler(TWITTER_CONSUMER_KEY, TWITTER_CONSUMER_SECRET)
 auth.set_access_token(TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET)
@@ -62,74 +177,66 @@ api = tweepy.API(auth, wait_on_rate_limit=True, wait_on_rate_limit_notify=True)
 
 class MyStreamListener(tweepy.StreamListener):
     sent = SentimentLookup()
-    buf  = []
-    last = datetime.datetime.now()
+    wait_duration_s = 60
+    counter = 0
     
     def on_status(self, status):
-        tweet = status.text.encode('utf-8', errors='ignore')
-        MyStreamListener.buf.append((status.created_at, MyStreamListener.sent.sentiment(tweet), status.text))
-        
-        # Commit from time to time
-        if dateparser.parse(PERIOD + ' ago') >= MyStreamListener.last:
-            arr = np.array(MyStreamListener.buf)
-
-            sentiments  = arr[:,1]
-            timestamps  = map(lambda t: int(t.strftime("%s")), arr[:,0])
-            epoch       = int(np.mean(timestamps))
-            value       = np.mean(sentiments)
-            std         = np.std(sentiments)
-            tweet_count = len(sentiments)
-
-            # Send to mean-sentiment-datastore
-            data     = json.dumps({
-                "timestamp": datetime.datetime.fromtimestamp(epoch).isoformat(),
-                "value": value,
-                "standard_deviation": std,
-                "tweet_count": tweet_count
-            })
-            url      = 'http://%s/api/mean-sentiment/%s' % (MEAN_SENTIMENT_DATASTORE, KEY)
-            headers  = {'Content-Type': 'application/json'}
-            response = requests.post(url, data=data, headers=headers)
-
-            # Send to top-tweets-datastore
-            texts = arr[:,2]
-            top_idx = np.argmax(sentiments)
-            top_sentiment = sentiments[top_idx]
-            top_timestamp = timestamps[top_idx]
-            top_text      = texts[top_idx]
-
-            data = json.dumps({
-                "timestamp": datetime.datetime.fromtimestamp(top_timestamp).isoformat(),
-                "sentiment": top_sentiment,
-                "text": top_text
-            })
-            url      = 'http://%s/api/top-tweets/%s' % (TOP_TWEETS_DATASTORE, KEY)
-            headers  = {'Content-Type': 'application/json'}
-            response = requests.post(url, data=data, headers=headers)
-
-            # Send to worst-tweets-datastore
-            texts = arr[:,2]
-            worst_idx = np.argmin(sentiments)
-            worst_sentiment = sentiments[worst_idx]
-            worst_timestamp = timestamps[worst_idx]
-            worst_text      = texts[worst_idx]
-
-            response = requests.post(
-                'http://%s/api/worst-tweets/%s' % (WORST_TWEETS_DATASTORE, KEY),
-                data = json.dumps({
-                    "timestamp": datetime.datetime.fromtimestamp(worst_timestamp).isoformat(),
-                    "sentiment": worst_sentiment,
-                    "text": worst_text
-                }),
-                headers = {
-                    'Content-Type': 'application/json'
-                }
-            )
+        try:
+            MyStreamListener.wait_duration_s = 60
             
-            MyStreamListener.buf = []
-            MyStreamListener.last = datetime.datetime.now()
+            author = status.user.screen_name.encode('utf-8', errors='ignore')
+            text = status.text.encode('utf-8', errors='ignore')
+            sentiment = MyStreamListener.sent.sentiment(text)
+            mentions = set([m['screen_name'] for m in status.entities['user_mentions']])
+            
+            # Whenever a user was mentioned
+            for user in users.intersection(mentions):
+                client.write_points([{
+                    "measurement":   "sentiment",
+                    "time":          status.created_at.isoformat(),
+                    "tags": {
+                        "key":       '@'+user,
+                        # This counter is needed to make points with the same
+                        # timestamp unique
+                        "counter":   MyStreamListener.counter
+                    },
+                    "fields": {
+                        "sentiment": sentiment,
+                        "text":      text,
+                        "author":    author
+                    }
+                }], retention_policy="one_hour")
+                MyStreamListener.counter += 1
+
+            # Whenever a user tweeted
+            if author in users:
+                client.write_points([{
+                    "measurement": "tweet",
+                    "time":        status.created_at.isoformat(),
+                    "tags": {
+                        "key":     '@'+author,
+                        "counter": MyStreamListener.counter
+                    },
+                    "fields": {
+                        "sentiment": sentiment,
+                        "text":      text
+                    }
+                }], retention_policy="forever")
+                MyStreamListener.counter += 1
+        except:
+            print("Exception in user code")
+            print('-'*60)
+            traceback.print_exc()
+            raise
+            
         
     def on_error(self, status_code):
+        if status_code == 420:
+            print("Error 420: Waiting for %d seconds" % MyStreamListener.wait_duration_s)
+            # Initially wait one minute, subsequent fails doubles that time
+            time.sleep(MyStreamListener.wait_duration_s)
+            MyStreamListener.wait_duration_s = MyStreamListener.wait_duration_s * 2
+            return True
         raise Exception(str(status_code))
     
 stream = tweepy.Stream(auth = api.auth, listener=MyStreamListener())

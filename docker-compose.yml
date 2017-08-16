@@ -1,35 +1,55 @@
 version: '3'
 services:
 
+  # The influxdb stores time series data
+  influxdb:
+    image: influxdb
+    ports:
+      - "8086:8086"
+      - "8083:8083"
+    volumes:
+      - "/var/lib/sentiment/influxdb:/var/lib/influxdb"
+
+  kapacitor:
+    image: kapacitor
+    depends_on:
+      - influxdb
+    ports:
+      - "9092:9092"
+    volumes:
+      - "./kapacitor.conf:/etc/kapacitor/kapacitor.conf:ro"
+      - "./tick:/usr/share/tick:ro"
+      - "/var/lib/sentiment/kapacitor:/var/lib/kapacitor"
+
+  chronograf:
+    image: chronograf
+    depends_on:
+      - influxdb
+    ports:
+      - "8888:8888"
+    volumes:
+      - "/var/lib/sentiment/chronograf:/var/lib/chronograf"
+
+  grafana:
+    image: grafana/grafana
+    depends_on:
+      - influxdb
+    ports:
+      - "3001:3000"
+    volumes:
+      - "/var/lib/sentiment/grafana:/var/lib/grafana"
+      
   # REST interface for POST and GET of sentiments
   mean-sentiment-datastore:
     build: ./mean-sentiment-datastore
+    depends_on:
+      - influxdb    
     expose:
       - "5000"
     volumes:
       - "/var/lib/sentiment/db:/var/lib/db"
     environment:
-      - DEFAULT_FROM=one month ago
-    restart: always
-
-  top-tweets-datastore:
-    build: ./top-tweets-datastore
-    expose:
-      - "5000"
-    volumes:
-      - "/var/lib/sentiment/db:/var/lib/db"
-    environment:
-      - DEFAULT_FROM=one month ago
-    restart: always
-
-  worst-tweets-datastore:
-    build: ./worst-tweets-datastore
-    expose:
-      - "5000"
-    volumes:
-      - "/var/lib/sentiment/db:/var/lib/db"
-    environment:
-      - DEFAULT_FROM=one month ago
+      - DEFAULT_RESOLUTION=hour
     restart: always
     
   react:
@@ -56,17 +76,17 @@ services:
       - "./nginx.conf:/etc/nginx/nginx.conf"
     depends_on:
       - mean-sentiment-datastore
-      - top-tweets-datastore
+      # - top-tweets-datastore
+      # - worst-tweets-datastore
       - react
     restart: always
 
   # Analyzer, pulls stream from twitter - analyzes - and
   # posts aggregated data to mean-sentiment-datastore
-  analyzer-trump:
+  analyzer:
     build: ./analyzer
     depends_on:
-      - mean-sentiment-datastore
-      - top-tweets-datastore
+      - influxdb
     environment:
       - TWITTER_CONSUMER_KEY
       - TWITTER_CONSUMER_SECRET
@@ -74,31 +94,5 @@ services:
       - TWITTER_ACCESS_TOKEN_SECRET
       - MODEL
       - VOCAB
-      - MEAN_SENTIMENT_DATASTORE=mean-sentiment-datastore:5000
-      - TOP_TWEETS_DATASTORE=top-tweets-datastore:5000
-      - WORST_TWEETS_DATASTORE=worst-tweets-datastore:5000
-      - KEY=trump
-      - PERIOD=1 minute
-    command: "@realDonaldTrump"
+    command: "@realDonaldTrump @HillaryClinton @BarackObama @mike_pence @SenJohnMcCain @SpeakerRyan @MittRomney"
     restart: always
-
-  analyzer-hillary:
-    build: ./analyzer
-    depends_on:
-      - mean-sentiment-datastore
-      - top-tweets-datastore
-    environment:
-      - TWITTER_CONSUMER_KEY
-      - TWITTER_CONSUMER_SECRET
-      - TWITTER_ACCESS_TOKEN
-      - TWITTER_ACCESS_TOKEN_SECRET
-      - MODEL
-      - VOCAB
-      - MEAN_SENTIMENT_DATASTORE=mean-sentiment-datastore:5000
-      - TOP_TWEETS_DATASTORE=top-tweets-datastore:5000
-      - WORST_TWEETS_DATASTORE=worst-tweets-datastore:5000
-      - KEY=hillary
-      - PERIOD=1 minute
-    command: "@HillaryClinton"
-    restart: always
-    
