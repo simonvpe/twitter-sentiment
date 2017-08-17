@@ -25,8 +25,9 @@ users = set([user[1:] for user in filter(lambda x: x[0] == '@',args["terms"])])
 
 class SentimentLookup:
     net = tflearn.input_data     ([None, 40])
-    net = tflearn.embedding      (net, input_dim=12495, output_dim=128)
-    net = tflearn.lstm           (net, 128, dropout=0.8)
+    net = tflearn.embedding      (net, input_dim=1578, output_dim=256)
+    net = tflearn.lstm           (net, 256, return_seq=True)
+    net = tflearn.lstm           (net, 256)    
     net = tflearn.fully_connected(net, 2, activation='softmax')
     net = tflearn.regression     (net, optimizer='adam', learning_rate=0.001,
                                        loss='categorical_crossentropy')
@@ -37,11 +38,12 @@ class SentimentLookup:
     
     def _process_tweet(self, tweet = ""):
         cleaned = str(tweet).upper()
-        cleaned = re.sub('&\w+;',   '',          cleaned)
-        cleaned = re.sub('\'',      '',          cleaned)
-        cleaned = re.sub('@\w+ ',   'USERNAME ', cleaned)
-        cleaned = re.sub('[^A-Z ]', '',          cleaned)
-        cleaned = re.sub('[ ]+',    ' ',         cleaned)
+        cleaned = re.sub('&\w+;',   '',  cleaned)
+        cleaned = re.sub('\'',      '',  cleaned)
+        cleaned = re.sub('@\w+ ',   '',  cleaned)
+        cleaned = re.sub('#\w+ ',   '',  cleaned)
+        cleaned = re.sub('[^A-Z ]', '',  cleaned)
+        cleaned = re.sub('[ ]+',    ' ', cleaned)
         return cleaned.strip()
 
     def sentiment(self, data):
@@ -129,7 +131,7 @@ try:
     client.query(
         create_cq_query('cq_15m', 'db',
                         cq_query(
-                            functions='mean(sentiment) AS sentiment, mean(std) AS std, sum(tweets) AS tweets',
+                            functions='mean(sentiment) AS sentiment, sum(tweets) AS tweets',
                             destination_measurement='"one_week"."sentiment_15m"',
                             measurement='"one_hour"."sentiment_1m"',
                             interval="15m",
@@ -144,7 +146,7 @@ try:
     client.query(
         create_cq_query('cq_1h', 'db',
                         cq_query(
-                            functions='mean(sentiment) AS sentiment, mean(std) AS std, sum(tweets) AS tweets',
+                            functions='mean(sentiment) AS sentiment, sum(tweets) AS tweets',
                             destination_measurement='"one_month"."sentiment_1h"',
                             measurement='"one_week"."sentiment_15m"',
                             interval="1h",
@@ -159,7 +161,7 @@ try:
     client.query(
         create_cq_query('cq_1d', 'db',
                         cq_query(
-                            functions='mean(sentiment) AS sentiment, mean(std) AS std, sum(tweets) AS tweets',
+                            functions='mean(sentiment) AS sentiment, sum(tweets) AS tweets',
                             destination_measurement='"forever"."sentiment_1d"',
                             measurement='"one_month"."sentiment_1h"',
                             interval="1d",
@@ -175,6 +177,10 @@ auth = tweepy.OAuthHandler(TWITTER_CONSUMER_KEY, TWITTER_CONSUMER_SECRET)
 auth.set_access_token(TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET)
 api = tweepy.API(auth, wait_on_rate_limit=True, wait_on_rate_limit_notify=True)
 
+# Get the user id's of the users we track
+user_objects = api.lookup_users(screen_names=users)
+user_ids = [user.id_str for user in user_objects]
+            
 class MyStreamListener(tweepy.StreamListener):
     sent = SentimentLookup()
     wait_duration_s = 60
@@ -188,7 +194,7 @@ class MyStreamListener(tweepy.StreamListener):
             text = status.text.encode('utf-8', errors='ignore')
             sentiment = MyStreamListener.sent.sentiment(text)
             mentions = set([m['screen_name'] for m in status.entities['user_mentions']])
-            
+
             # Whenever a user was mentioned
             for user in users.intersection(mentions):
                 client.write_points([{
@@ -206,7 +212,7 @@ class MyStreamListener(tweepy.StreamListener):
                         "author":    author
                     }
                 }], retention_policy="one_hour")
-                MyStreamListener.counter += 1
+                MyStreamListener.counter = (MyStreamListener.counter + 1) % 100000
 
             # Whenever a user tweeted
             if author in users:
@@ -222,7 +228,7 @@ class MyStreamListener(tweepy.StreamListener):
                         "text":      text
                     }
                 }], retention_policy="forever")
-                MyStreamListener.counter += 1
+                MyStreamListener.counter = (MyStreamListener.counter + 1) % 100000
         except:
             print("Exception in user code")
             print('-'*60)
@@ -240,4 +246,4 @@ class MyStreamListener(tweepy.StreamListener):
         raise Exception(str(status_code))
     
 stream = tweepy.Stream(auth = api.auth, listener=MyStreamListener())
-stream.filter(track=args["terms"], async=False, languages=['en'])
+stream.filter(track=args["terms"], follow=user_ids, async=False, languages=['en'])

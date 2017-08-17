@@ -29,8 +29,8 @@ services:
       - "3001:3000"
     environment:
       - GF_SERVER_ROOT_URL=http://192.168.10.236/grafana
-      - GF_SECURITY_ADMIN_PASSWORD=321ytrewq
     volumes:
+      - "./grafana.ini:/etc/grafana/grafana.ini"
       - "/var/lib/sentiment/grafana:/var/lib/grafana"
       
   # REST interface for POST and GET of sentiments
